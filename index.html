@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Awesome-color-picker</title>
+    <style>
+        .banner-container {
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            box-sizing: border-box;
+            /*padding-top: 16%;*/
+            aspect-ratio: 2;
+            background-image: url(http://localhost:63342/awesome-banner/assets/demo3.png);
+        }
+        .img-contaner{
+            margin-top: 10px;
+            font-size: 0;
+        }
+        .box {
+            width: 100px;
+            height: 100px;
+            background-color: #000;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+<input type="file" accept="image/png,image/jpep,image/jpg"/>
+<div class="img-contaner">
+    <img/>
+</div>
+<div class="box"></div>
+<script>
+    let canPickColor = false
+    let imageData = null
+    let imageSize = null
+    document.querySelector('input').onchange = (e) => {
+        const file = e.target.files[0];
+        const fileReader = new FileReader()
+        fileReader.onload = (e) => {
+            //get image data
+            getImgDataBySrc(e.target.result, (_imgData, _imgSize) => {
+                document.querySelector('.img-contaner > img').src = e.target.result;
+                canPickColor = true
+                imageData = _imgData
+                imageSize = _imgSize
+            })
+        }
+        fileReader.readAsDataURL(file)
+    }
+
+    document.querySelector('.img-contaner > img').addEventListener('mousemove', (event) => {
+        if (event.offsetX > 0 && event.offsetY > 0 && canPickColor) {
+            const colors = getSectionsMainColor(imageData, imageSize, [
+                {
+                    sx: event.offsetX,
+                    sy: event.offsetY,
+                    sw: 1,
+                    sh: 1
+                },
+            ])
+            document.querySelector('.box').style.backgroundColor = colors[0]
+        }
+    })
+    const getImgDataBySrc = (imgSrc, callback) => {
+        const imgEle = document.createElement('img')
+        const canvas = document.createElement('canvas')
+        imgEle.src = imgSrc
+        imgEle.onload = () => {
+            var ctx = canvas.getContext("2d");
+            var naturalImgSize = [imgEle.naturalWidth, imgEle.naturalHeight];
+            canvas.width = naturalImgSize[0];
+            canvas.height = naturalImgSize[1];
+            ctx.drawImage(imgEle, 0, 0);
+            //获取imageData
+            var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            //打印该数据
+            callback(imgData, {
+                width: canvas.width,
+                height: canvas.height
+            })
+        }
+    }
+    /**
+     * @param imgData: ImageData
+     * @param imgSize:{ width:number,height:number }
+     * @param sections: Array<{
+     *     sx,
+     *     sy,
+     *     sw,
+     *     sh
+     * }>
+     */
+    const getSectionsMainColor = (imgData, imgSize, sections) => {
+        //one pxl dot has four values:rgba
+        const oneRowImgDataLen = imgSize.width * 4;
+        if (sections.sx > imgSize.width || (sections.sx + sections.sw) > imgSize.width) {
+            throw 'section error'
+        }
+        if (sections.sy > imgSize.height || (sections.sy + sections.sh) > imgSize.height) {
+            throw 'section error'
+        }
+
+        //[[avg,r,g,b],...]
+        const sectionColorsData = []
+        //[133,131,124,...]
+        const sectionAverageValues = []
+        imgData.data.forEach((colorVal, i) => {
+            //extract sections
+            sections.forEach((section, sectionIdx) => {
+                if (i % oneRowImgDataLen >= 4 * section.sx && i % oneRowImgDataLen <= 4 * (section.sx + section.sw)) {
+                    if (Math.ceil(i / oneRowImgDataLen) >= section.sy && Math.ceil(i / oneRowImgDataLen) <= (section.sy + section.sh)) {
+                        if (i % 4 === 0) {
+                            //get average value of rgb
+                            const curAverageRGB = (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
+                            if (!sectionColorsData[sectionIdx]) {
+                                sectionColorsData[sectionIdx] = []
+                            }
+                            sectionColorsData[sectionIdx].push([curAverageRGB, imgData.data[i], imgData.data[i + 1], imgData.data[i + 2]])
+                        }
+                    }
+                }
+            })
+        })
+        //generate section's average rgb
+        sectionColorsData.forEach((sectionColorData, idx) => {
+            sectionAverageValues[idx] = Math.round(sectionColorData.reduce((_cur, sectionColor) => {
+                return _cur + sectionColor[0]
+            }, 0) / sectionColorData.length)
+        })
+
+        //find the most near color
+        const findNearestIndex = (sectionColorData, averageVal) => {
+            let _gapValue = Math.abs(averageVal - sectionColorData[0][0])
+            let _nearColorIndex = 0
+            sectionColorData.forEach((colorData, index) => {
+                const curGapValue = Math.abs(colorData[0] - averageVal)
+                if (curGapValue < _gapValue) {
+                    _gapValue = curGapValue
+                    _nearColorIndex = index
+                }
+            })
+            return _nearColorIndex
+        }
+
+        const sectionMainColors = sectionColorsData.map((sectionColorData, idx) => {
+            const color = sectionColorData[findNearestIndex(sectionColorData, sectionAverageValues[idx])]
+            return `rgb(${color[1]},${color[2]},${color[3]})`
+        })
+        return sectionMainColors
+    }
+</script>
+</body>
+</html>
